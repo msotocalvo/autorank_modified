@@ -23,7 +23,7 @@ if 'text.usetex' in plt.rcParams and plt.rcParams['text.usetex']:
 
 
 def autorank(data, alpha=0.05, verbose=False, order='descending', approach='frequentist', rope=0.1, rope_mode='effsize',
-             nsamples=50000, effect_size=None, force_mode=None, random_state=None):
+             nsamples=50000, effect_size=None, force_mode=None):
     """
     Automatically compares populations defined in a block-design data frame. Each column in the data frame contains
     the samples for one population. The data must not contain any NaNs. The data must have at least five measurements,
@@ -111,11 +111,6 @@ def autorank(data, alpha=0.05, verbose=False, order='descending', approach='freq
         automatically get the t-test/repeated measures ANOVA. With 'nonparametric' you automatically get Wilcoxon's
         signed rank test/Friedman test.
 
-    random_state (integer, default=None):
-        Seed for random state. Forwarded to Bayesian signed rank test to enable reproducible sampling and, thereby,
-        reproducible results.
-        _(New in Version 1.2.0)_
-
     # Returns
 
     A named tuple of type RankResult with the following entries.
@@ -164,12 +159,6 @@ def autorank(data, alpha=0.05, verbose=False, order='descending', approach='freq
 
     order (string):
         Order of the central tendencies used for ranking.
-
-    sample_matrix (DataFrame):
-        Matrix with SignedRankTest objects from package baycomp. Can be used to do further analysis, e.g. to generate
-        plots using the built-in plot() method of baycomp. For a detailed description of methods and parameters, see
-        the documentation of baycomp: https://baycomp.readthedocs.io/en/latest/classes.html#multiple-data-sets
-        _(New in Version 1.2.0)_
 
     posterior_matrix (DataFrame):
         Matrix with the pair-wise posterior probabilities estimated with the Bayesian signed ranked test. The matrix
@@ -293,56 +282,30 @@ def autorank(data, alpha=0.05, verbose=False, order='descending', approach='freq
         pvals_shapiro = [pvals_shapiro[pos] for pos in res.reorder_pos]
         return RankResult(res.rankdf, res.pvalue, res.cd, res.omnibus, res.posthoc, all_normal, pvals_shapiro,
                           var_equal, pval_homogeneity, homogeneity_test, alpha, alpha_normality, len(data), None, None,
-                          None, None, None, res.effect_size, force_mode)
+                          None, None, res.effect_size, force_mode)
     elif approach == 'bayesian':
-        res = rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size, random_state)
+        res = rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size)
         # need to reorder pvals here (see issue #7)
         pvals_shapiro = [pvals_shapiro[pos] for pos in res.reorder_pos]
         return RankResult(res.rankdf, None, None, 'bayes', 'bayes', all_normal, pvals_shapiro, None, None, None, alpha,
-                          alpha_normality, len(data), res.sample_matrix, res.posterior_matrix, res.decision_matrix, rope,
-                          rope_mode, res.effect_size, force_mode)
+                          alpha_normality, len(data), res.posterior_matrix, res.decision_matrix, rope, rope_mode,
+                          res.effect_size, force_mode)
 
 
-def plot_stats(result, *, allow_insignificant=False, ax=None, width=None):
+def plot_stats(result, *, allow_insignificant=False, ax=None, width=None, fontsize=18, title='', linewidth = 1.5):
     """
-    Creates a plot that supports the analysis of the results of the statistical test. The plot depends on the
-    statistical test that was used.
+    Creates a plot that supports the analysis of the results of the statistical test.
 
-    - Creates a Confidence Interval (CI) plot for a paired t-test between two normal populations. The confidence
-     intervals are calculated with Bonferoni correction, i.e., a confidence level of alpha/2.
-    - Creates a CI plot for Tukey's HSD as post-hoc test with the confidence intervals calculated using the HSD approach
-     such that the family wise significance is alpha.
-    - Creates Critical Distance (CD) diagrams for the Nemenyi post-hoc test. CD diagrams visualize the mean ranks of
-     populations. Populations that are not significantly different are connected by a horizontal bar.
+    ...
 
-    This function raises a ValueError if the omnibus test did not detect a significant difference. The allow_significant
-    parameter allows the suppression of this exception and forces the creation of the plots.
-
-    # Parameters
-
-    result (RankResult):
-        Should be the return value the autorank function.
-
-    allow_insignificant (bool, default=False):
-        Forces plotting even if results are not significant.
-
-    ax (Axis, default=None):
-        Matplotlib axis to which the results are added. A new figure with a single axis is created if None.
-
-    width (float, default=None):
-        Specifies the width of the created plot is not None. By default, we use a width of 6. The height is
-        automatically determined, based on the type of plot and the number of populations. This parameter is ignored if
-        ax is not None.
-
-    # Return
-
-    Axis with the plot. None if no plot was generated.
+    fontsize (int, default=14):
+        Font size to be used in the plot.
     """
     if not isinstance(result, RankResult):
         raise TypeError("result must be of type RankResult and should be the outcome of calling the autorank function.")
 
     if result.omnibus == 'bayes':
-        raise ValueError("ploting results of bayesian analysis not yet supported.")
+        raise ValueError("plotting results of bayesian analysis not yet supported.")
 
     if result.pvalue >= result.alpha and not allow_insignificant:
         raise ValueError(
@@ -355,14 +318,15 @@ def plot_stats(result, *, allow_insignificant=False, ax=None, width=None):
         width = 6
 
     if result.omnibus == 'ttest':
-        ax = ci_plot(result, True, ax, width)
+        ax = ci_plot(result, True, ax, width, fontsize)
     elif result.omnibus == 'wilcoxon':
         warnings.warn('No plot to visualize statistics for Wilcoxon test available. Doing nothing.')
     elif result.posthoc == 'tukeyhsd':
-        ax = ci_plot(result, True, ax, width)
+        ax = ci_plot(result, True, ax, width, fontsize)
     elif result.posthoc == 'nemenyi':
-        ax = cd_diagram(result, True, ax, width)
+        ax = cd_diagram(result, True, ax, width, fontsize, title, linewidth)
     return ax
+
 
 
 def create_report(result, *, decimal_places=3):
@@ -519,8 +483,6 @@ def create_report(result, *, decimal_places=3):
         else:
             raise ValueError('unknown effect size method, this should not be possible: %s' % result.effect_size)
         if result.omnibus == 'ttest':
-            larger = np.argmax(result.rankdf['mean'].values)
-            smaller = int(bool(larger - 1))
             if result.all_normal:
                 print("Because we have only two populations and both populations are normal, we use the t-test to "
                       "determine differences between the mean values of the populations and report the mean value (M)"
@@ -548,11 +510,9 @@ def create_report(result, *, decimal_places=3):
                       "significantly larger than the mean value of %s with a %s effect size (%s=%.*f)."
                       % (decimal_places, result.pvalue,
                          create_population_string(result.rankdf.index, with_stats=True),
-                         result.rankdf.index[larger], result.rankdf.index[smaller],
-                         result.rankdf.magnitude[larger], effect_size, decimal_places, result.rankdf.effect_size[larger]))
+                         result.rankdf.index[0], result.rankdf.index[1],
+                         result.rankdf.magnitude[1], effect_size, decimal_places, result.rankdf.effect_size[1]))
         elif result.omnibus == 'wilcoxon':
-            larger = np.argmax(result.rankdf['median'].values)
-            smaller = int(bool(larger - 1))
             if result.all_normal:
                 print("Because we have only two populations and both populations are normal, we should use the t-test "
                       "to determine differences between the mean values of the populations and report the mean value "
@@ -572,18 +532,18 @@ def create_report(result, *, decimal_places=3):
                       "population %s is not greater than population %s . Therefore, we "
                       "assume that there is no statistically significant difference between the medians of the "
                       "populations." % (decimal_places, result.pvalue,
-                                        create_population_string(result.rankdf.index[larger], with_stats=True),
-                                        create_population_string(result.rankdf.index[smaller], with_stats=True)))
+                                        create_population_string(result.rankdf.index[0], with_stats=True),
+                                        create_population_string(result.rankdf.index[1], with_stats=True)))
             else:
                 print("We reject the null hypothesis (p=%.*f) of Wilcoxon's signed rank test that population "
                       "%s is not greater than population %s. Therefore, we assume "
                       "that the median of %s is "
                       "significantly larger than the median value of %s with a %s effect size (%s=%.*f)."
                       % (decimal_places, result.pvalue,
-                         create_population_string(result.rankdf.index[larger], with_stats=True),
-                         create_population_string(result.rankdf.index[smaller], with_stats=True),
-                         result.rankdf.index[larger], result.rankdf.index[smaller],
-                         result.rankdf.magnitude[larger], effect_size, decimal_places, result.rankdf.effect_size[larger]))
+                         create_population_string(result.rankdf.index[0], with_stats=True),
+                         create_population_string(result.rankdf.index[1], with_stats=True),
+                         result.rankdf.index[0], result.rankdf.index[1],
+                         result.rankdf.magnitude[1], effect_size, decimal_places, result.rankdf.effect_size[1]))
         else:
             raise ValueError('Unknown omnibus test for difference in the central tendency: %s' % result.omnibus)
     else:

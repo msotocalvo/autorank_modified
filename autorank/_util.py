@@ -7,7 +7,7 @@ from scipy import stats
 from statsmodels.stats.libqsturng import qsturng
 from statsmodels.stats.multicomp import MultiComparison
 from statsmodels.stats.anova import AnovaRM
-from baycomp import SignedRankTest
+from baycomp import two_on_multiple
 from collections import namedtuple
 
 __all__ = ['rank_two', 'rank_multiple_normal_homoscedastic', 'rank_bayesian', 'RankResult',
@@ -16,9 +16,8 @@ __all__ = ['rank_two', 'rank_multiple_normal_homoscedastic', 'rank_bayesian', 'R
 
 class RankResult(namedtuple('RankResult', ('rankdf', 'pvalue', 'cd', 'omnibus', 'posthoc', 'all_normal',
                                            'pvals_shapiro', 'homoscedastic', 'pval_homogeneity', 'homogeneity_test',
-                                           'alpha', 'alpha_normality', 'num_samples', 'sample_matrix',
-                                           'posterior_matrix', 'decision_matrix', 'rope', 'rope_mode', 'effect_size',
-                                           'force_mode'))):
+                                           'alpha', 'alpha_normality', 'num_samples', 'posterior_matrix',
+                                           'decision_matrix', 'rope', 'rope_mode', 'effect_size', 'force_mode'))):
     __slots__ = ()
 
     def __str__(self):
@@ -62,7 +61,7 @@ class _ComparisonResult(namedtuple('ComparisonResult', ('rankdf', 'pvalue', 'cd'
                                     self.reorder_pos)
 
 
-class _BayesResult(namedtuple('BayesResult', ('rankdf', 'sample_matrix', 'posterior_matrix', 'decision_matrix', 'effect_size',
+class _BayesResult(namedtuple('BayesResult', ('rankdf', 'posterior_matrix', 'decision_matrix', 'effect_size',
                                               'reorder_pos'))):
     __slots__ = ()
 
@@ -304,7 +303,7 @@ def rank_multiple_nonparametric(data, alpha, verbose, all_normal, order, effect_
     return _ComparisonResult(rankdf, pval, cd, 'friedman', 'nemenyi', effsize_method, reorder_pos)
 
 
-def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size, random_state):
+def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size):
     # TODO check if some outputs for the verbose mode would be helpful
     if all_normal:
         order_column = 'mean'
@@ -320,7 +319,6 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
     # re-order columns to have the same order as results
     reordered_data = data.reindex(result_df.index, axis=1)
 
-    sample_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     posterior_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     decision_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     for i in range(len(data.columns)):
@@ -335,10 +333,8 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
                 cur_rope = rope
             else:
                 raise ValueError("Unknown rope_mode method, this should not be possible.")
-            sample = SignedRankTest(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j], rope=cur_rope,
-                                    nsamples=nsamples, random_state=random_state)
-            posterior_probabilities = sample.probs()
-            sample_matrix.iloc[i, j] = sample
+            posterior_probabilities = two_on_multiple(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j],
+                                                      rope=cur_rope, nsamples=nsamples)
             posterior_matrix.iloc[i, j] = posterior_probabilities
             decision_matrix.iloc[i, j] = _posterior_decision(posterior_probabilities, alpha)
             decision_matrix.iloc[j, i] = _posterior_decision(posterior_probabilities[::-1], alpha)
@@ -348,7 +344,7 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
                 result_df.loc[result_df.index[j], 'p_smaller'] = posterior_probabilities[0]
                 result_df.loc[result_df.index[j], 'decision'] = _posterior_decision(posterior_probabilities, alpha)
 
-    return _BayesResult(result_df, sample_matrix, posterior_matrix, decision_matrix, effsize_method, reorder_pos)
+    return _BayesResult(result_df, posterior_matrix, decision_matrix, effsize_method, reorder_pos)
 
 
 def _create_result_df_skeleton(data, alpha, all_normal, order, order_column='meanrank', effect_size=None,
@@ -442,15 +438,17 @@ def get_sorted_rank_groups(result, reverse):
     return sorted_ranks, names, groups
 
 
-def cd_diagram(result, reverse, ax, width):
+def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Difference Diagram", linewidth=1.5):
     """
-    Creates a Critical Distance diagram.
+    Creates a Critical Difference diagram with adjustable font size, title, and line thickness.
     """
 
     def plot_line(line, color='k', **kwargs):
+        kwargs.setdefault('linewidth', linewidth)
         ax.plot([pos[0] / width for pos in line], [pos[1] / height for pos in line], color=color, **kwargs)
 
     def plot_text(x, y, s, *args, **kwargs):
+        kwargs['fontsize'] = fontsize
         ax.text(x / width, y / height, s, *args, **kwargs)
 
     result_copy = RankResult(**result._asdict())
@@ -473,26 +471,25 @@ def cd_diagram(result, reverse, ax, width):
 
     linesblank = 0.2 + 0.2 + (len(groups) - 1) * 0.1
 
-    # add scale
+    # Add scale
     distanceh = 0.25
     cline += distanceh
 
-    # calculate height needed height of an image
+    # Calculate height needed for the image
     minnotsignificant = max(2 * 0.2, linesblank)
     height = cline + ((len(sorted_ranks) + 1) / 2) * 0.2 + minnotsignificant
 
     if ax is None:
-        fig = plt.figure(figsize=(width, height))
+        fig, ax = plt.subplots(figsize=(width, height))
         fig.set_facecolor('white')
-        ax = fig.add_axes([0, 0, 1, 1])  # reverse y axis
     ax.set_axis_off()
 
-    # Upper left corner is (0,0).
+    # Upper left corner is (0,0)
     ax.plot([0, 1], [0, 1], c="w")
     ax.set_xlim(0, 1)
     ax.set_ylim(1, 0)
 
-    plot_line([(textspace, cline), (width - textspace, cline)], linewidth=0.7)
+    plot_line([(textspace, cline), (width - textspace, cline)], linewidth=linewidth)
 
     bigtick = 0.1
     smalltick = 0.05
@@ -504,54 +501,61 @@ def cd_diagram(result, reverse, ax, width):
             tick = bigtick
         plot_line([(rankpos(a), cline - tick / 2),
                    (rankpos(a), cline)],
-                  linewidth=0.7)
+                  linewidth=linewidth)
 
     for a in range(lowv, highv + 1):
         plot_text(rankpos(a), cline - tick / 2 - 0.05, str(a),
                   ha="center", va="bottom")
 
+    # Separate rank labels before population names
     for i in range(math.ceil(len(sorted_ranks) / 2)):
         chei = cline + minnotsignificant + i * 0.2
+        rank_label = f"{sorted_ranks[i]:.2f}"
         plot_line([(rankpos(sorted_ranks[i]), cline),
                    (rankpos(sorted_ranks[i]), chei),
                    (textspace - 0.1, chei)],
-                  linewidth=0.7)
+                  linewidth=linewidth)
+        plot_text(textspace + 0.2, chei - 0.06, rank_label, ha="right", va="center")
         plot_text(textspace - 0.2, chei, names[i], ha="right", va="center")
 
     for i in range(math.ceil(len(sorted_ranks) / 2), len(sorted_ranks)):
         chei = cline + minnotsignificant + (len(sorted_ranks) - i - 1) * 0.2
+        rank_label = f"{sorted_ranks[i]:.2f}"
         plot_line([(rankpos(sorted_ranks[i]), cline),
                    (rankpos(sorted_ranks[i]), chei),
                    (textspace + scalewidth + 0.1, chei)],
-                  linewidth=0.7)
-        plot_text(textspace + scalewidth + 0.2, chei, names[i],
-                  ha="left", va="center")
+                  linewidth=linewidth)
+        plot_text(textspace + (scalewidth - 0.2), chei - 0.06, rank_label, ha="left", va="center")
+        plot_text(textspace + scalewidth + 0.2, chei, names[i], ha="left", va="center")
 
-    # upper scale
+    # Upper scale
     if not reverse:
         begin, end = rankpos(lowv), rankpos(lowv + cd)
     else:
         begin, end = rankpos(highv), rankpos(highv - cd)
 
-    plot_line([(begin, distanceh), (end, distanceh)], linewidth=0.7)
+    plot_line([(begin, distanceh), (end, distanceh)], linewidth=linewidth)
     plot_line([(begin, distanceh + bigtick / 2),
                (begin, distanceh - bigtick / 2)],
-              linewidth=0.7)
+              linewidth=linewidth)
     plot_line([(end, distanceh + bigtick / 2),
                (end, distanceh - bigtick / 2)],
-              linewidth=0.7)
+              linewidth=linewidth)
     plot_text((begin + end) / 2, distanceh - 0.05, "CD",
               ha="center", va="bottom")
 
-    # no-significance lines
+    # No-significance lines
     side = 0.05
     no_sig_height = 0.1
     start = cline + 0.2
     for l, r in groups:
         plot_line([(rankpos(sorted_ranks[l]) - side, start),
                    (rankpos(sorted_ranks[r]) + side, start)],
-                  linewidth=2.5)
+                  linewidth=linewidth * 2)
         start += no_sig_height
+
+    # Add title to the diagram
+    ax.set_title(title, fontsize=fontsize + 6)
 
     return ax
 
@@ -577,7 +581,7 @@ def ci_plot(result, reverse, ax, width):
     ax.errorbar(sorted_means, range(len(sorted_means)), xerr=(ci_upper[0] - ci_lower[0]) / 2, marker='o',
                 linestyle='None', color='k', ecolor='k')
     ax.set_yticks(range(len(names)))
-    ax.set_yticklabels(names.to_list())
+    ax.set_yticklabels(names.to_list(),fontsize = 32)
     ax.set_title('%.1f%% Confidence Intervals of the Mean' % ((1 - result.alpha) * 100))
     return ax
 
