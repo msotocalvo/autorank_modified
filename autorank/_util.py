@@ -559,7 +559,6 @@ def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Differen
 
     return ax
 
-
 def ci_plot(result, reverse, ax, width):
     """
     Uses error bars to create a plot of the confidence intervals of the mean value.
