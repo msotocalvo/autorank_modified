@@ -324,10 +324,8 @@ def plot_stats(result, *, allow_insignificant=False, ax=None, width=None, fontsi
     elif result.posthoc == 'tukeyhsd':
         ax = ci_plot(result, True, ax, width, fontsize)
     elif result.posthoc == 'nemenyi':
-        ax = cd_diagram(result, True, ax, width, fontsize, title, linewidth)
+        ax = cd_diagram(result, True, ax, width, fontsize, title, linewidth)        
     return ax
-
-
 
 def create_report(result, *, decimal_places=3):
     """
