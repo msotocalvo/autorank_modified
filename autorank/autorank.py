@@ -292,7 +292,7 @@ def autorank(data, alpha=0.05, verbose=False, order='descending', approach='freq
                           res.effect_size, force_mode)
 
 
-def plot_stats(result, *, allow_insignificant=False, ax=None, width=None, fontsize=18, title='', linewidth = 1.5):
+def plot_stats(result, *, allow_insignificant=False, ax=None, width=None, fontsize=18, title='', linewidth = 1.5, label_colors = None):
     """
     Creates a plot that supports the analysis of the results of the statistical test.
 
@@ -324,8 +324,11 @@ def plot_stats(result, *, allow_insignificant=False, ax=None, width=None, fontsi
     elif result.posthoc == 'tukeyhsd':
         ax = ci_plot(result, True, ax, width, fontsize)
     elif result.posthoc == 'nemenyi':
-        ax = cd_diagram(result, True, ax, width, fontsize, title, linewidth)        
+        ax = cd_diagram(result, True, ax, width, fontsize, title, linewidth, label_colors)
+        
     return ax
+
+
 
 def create_report(result, *, decimal_places=3):
     """
