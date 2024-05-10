@@ -7,7 +7,7 @@ from scipy import stats
 from statsmodels.stats.libqsturng import qsturng
 from statsmodels.stats.multicomp import MultiComparison
 from statsmodels.stats.anova import AnovaRM
-from baycomp import two_on_multiple
+from baycomp import SignedRankTest
 from collections import namedtuple
 
 __all__ = ['rank_two', 'rank_multiple_normal_homoscedastic', 'rank_bayesian', 'RankResult',
@@ -16,8 +16,9 @@ __all__ = ['rank_two', 'rank_multiple_normal_homoscedastic', 'rank_bayesian', 'R
 
 class RankResult(namedtuple('RankResult', ('rankdf', 'pvalue', 'cd', 'omnibus', 'posthoc', 'all_normal',
                                            'pvals_shapiro', 'homoscedastic', 'pval_homogeneity', 'homogeneity_test',
-                                           'alpha', 'alpha_normality', 'num_samples', 'posterior_matrix',
-                                           'decision_matrix', 'rope', 'rope_mode', 'effect_size', 'force_mode'))):
+                                           'alpha', 'alpha_normality', 'num_samples', 'sample_matrix',
+                                           'posterior_matrix', 'decision_matrix', 'rope', 'rope_mode', 'effect_size',
+                                           'force_mode'))):
     __slots__ = ()
 
     def __str__(self):
@@ -61,7 +62,7 @@ class _ComparisonResult(namedtuple('ComparisonResult', ('rankdf', 'pvalue', 'cd'
                                     self.reorder_pos)
 
 
-class _BayesResult(namedtuple('BayesResult', ('rankdf', 'posterior_matrix', 'decision_matrix', 'effect_size',
+class _BayesResult(namedtuple('BayesResult', ('rankdf', 'sample_matrix', 'posterior_matrix', 'decision_matrix', 'effect_size',
                                               'reorder_pos'))):
     __slots__ = ()
 
@@ -303,7 +304,7 @@ def rank_multiple_nonparametric(data, alpha, verbose, all_normal, order, effect_
     return _ComparisonResult(rankdf, pval, cd, 'friedman', 'nemenyi', effsize_method, reorder_pos)
 
 
-def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size):
+def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsamples, effect_size, random_state):
     # TODO check if some outputs for the verbose mode would be helpful
     if all_normal:
         order_column = 'mean'
@@ -319,6 +320,7 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
     # re-order columns to have the same order as results
     reordered_data = data.reindex(result_df.index, axis=1)
 
+    sample_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     posterior_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     decision_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     for i in range(len(data.columns)):
@@ -333,8 +335,10 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
                 cur_rope = rope
             else:
                 raise ValueError("Unknown rope_mode method, this should not be possible.")
-            posterior_probabilities = two_on_multiple(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j],
-                                                      rope=cur_rope, nsamples=nsamples)
+            sample = SignedRankTest(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j], rope=cur_rope,
+                                    nsamples=nsamples, random_state=random_state)
+            posterior_probabilities = sample.probs()
+            sample_matrix.iloc[i, j] = sample
             posterior_matrix.iloc[i, j] = posterior_probabilities
             decision_matrix.iloc[i, j] = _posterior_decision(posterior_probabilities, alpha)
             decision_matrix.iloc[j, i] = _posterior_decision(posterior_probabilities[::-1], alpha)
@@ -344,7 +348,7 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
                 result_df.loc[result_df.index[j], 'p_smaller'] = posterior_probabilities[0]
                 result_df.loc[result_df.index[j], 'decision'] = _posterior_decision(posterior_probabilities, alpha)
 
-    return _BayesResult(result_df, posterior_matrix, decision_matrix, effsize_method, reorder_pos)
+    return _BayesResult(result_df, sample_matrix, posterior_matrix, decision_matrix, effsize_method, reorder_pos)
 
 
 def _create_result_df_skeleton(data, alpha, all_normal, order, order_column='meanrank', effect_size=None,
@@ -547,8 +551,6 @@ def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Differen
 
     return ax
 
-
-
 def ci_plot(result, reverse, ax, width):
     """
     Uses error bars to create a plot of the confidence intervals of the mean value.
@@ -570,7 +572,7 @@ def ci_plot(result, reverse, ax, width):
     ax.errorbar(sorted_means, range(len(sorted_means)), xerr=(ci_upper[0] - ci_lower[0]) / 2, marker='o',
                 linestyle='None', color='k', ecolor='k')
     ax.set_yticks(range(len(names)))
-    ax.set_yticklabels(names.to_list(),fontsize = 32)
+    ax.set_yticklabels(names.to_list())
     ax.set_title('%.1f%% Confidence Intervals of the Mean' % ((1 - result.alpha) * 100))
     return ax
 
