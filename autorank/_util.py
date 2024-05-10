@@ -438,9 +438,10 @@ def get_sorted_rank_groups(result, reverse):
     return sorted_ranks, names, groups
 
 
-def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Difference Diagram", linewidth=1.5):
+def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Difference Diagram", linewidth=1.5, label_colors=None):
     """
     Creates a Critical Difference diagram with adjustable font size, title, and line thickness.
+    `label_colors` is a dictionary that maps algorithm names to their desired colors.
     """
 
     def plot_line(line, color='k', **kwargs):
@@ -449,6 +450,9 @@ def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Differen
 
     def plot_text(x, y, s, *args, **kwargs):
         kwargs['fontsize'] = fontsize
+        # Apply custom label color if specified in the label_colors mapping
+        if label_colors and s in label_colors:
+            kwargs['color'] = label_colors[s]
         ax.text(x / width, y / height, s, *args, **kwargs)
 
     result_copy = RankResult(**result._asdict())
@@ -499,32 +503,23 @@ def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Differen
         tick = smalltick
         if a == int(a):
             tick = bigtick
-        plot_line([(rankpos(a), cline - tick / 2),
-                   (rankpos(a), cline)],
-                  linewidth=linewidth)
+        plot_line([(rankpos(a), cline - tick / 2), (rankpos(a), cline)], linewidth=linewidth)
 
     for a in range(lowv, highv + 1):
-        plot_text(rankpos(a), cline - tick / 2 - 0.05, str(a),
-                  ha="center", va="bottom")
+        plot_text(rankpos(a), cline - tick / 2 - 0.05, str(a), ha="center", va="bottom")
 
     # Separate rank labels before population names
     for i in range(math.ceil(len(sorted_ranks) / 2)):
         chei = cline + minnotsignificant + i * 0.2
         rank_label = f"{sorted_ranks[i]:.2f}"
-        plot_line([(rankpos(sorted_ranks[i]), cline),
-                   (rankpos(sorted_ranks[i]), chei),
-                   (textspace - 0.1, chei)],
-                  linewidth=linewidth)
+        plot_line([(rankpos(sorted_ranks[i]), cline), (rankpos(sorted_ranks[i]), chei), (textspace - 0.1, chei)], linewidth=linewidth)
         plot_text(textspace + 0.2, chei - 0.06, rank_label, ha="right", va="center")
         plot_text(textspace - 0.2, chei, names[i], ha="right", va="center")
 
     for i in range(math.ceil(len(sorted_ranks) / 2), len(sorted_ranks)):
         chei = cline + minnotsignificant + (len(sorted_ranks) - i - 1) * 0.2
         rank_label = f"{sorted_ranks[i]:.2f}"
-        plot_line([(rankpos(sorted_ranks[i]), cline),
-                   (rankpos(sorted_ranks[i]), chei),
-                   (textspace + scalewidth + 0.1, chei)],
-                  linewidth=linewidth)
+        plot_line([(rankpos(sorted_ranks[i]), cline), (rankpos(sorted_ranks[i]), chei), (textspace + scalewidth + 0.1, chei)], linewidth=linewidth)
         plot_text(textspace + (scalewidth - 0.2), chei - 0.06, rank_label, ha="left", va="center")
         plot_text(textspace + scalewidth + 0.2, chei, names[i], ha="left", va="center")
 
@@ -535,29 +530,24 @@ def cd_diagram(result, reverse, ax, width, fontsize=14, title="Critical Differen
         begin, end = rankpos(highv), rankpos(highv - cd)
 
     plot_line([(begin, distanceh), (end, distanceh)], linewidth=linewidth)
-    plot_line([(begin, distanceh + bigtick / 2),
-               (begin, distanceh - bigtick / 2)],
-              linewidth=linewidth)
-    plot_line([(end, distanceh + bigtick / 2),
-               (end, distanceh - bigtick / 2)],
-              linewidth=linewidth)
-    plot_text((begin + end) / 2, distanceh - 0.05, "CD",
-              ha="center", va="bottom")
+    plot_line([(begin, distanceh + bigtick / 2), (begin, distanceh - bigtick / 2)], linewidth=linewidth)
+    plot_line([(end, distanceh + bigtick / 2), (end, distanceh - bigtick / 2)], linewidth=linewidth)
+    plot_text((begin + end) / 2, distanceh - 0.05, "CD", ha="center", va="bottom")
 
     # No-significance lines
     side = 0.05
     no_sig_height = 0.1
     start = cline + 0.2
     for l, r in groups:
-        plot_line([(rankpos(sorted_ranks[l]) - side, start),
-                   (rankpos(sorted_ranks[r]) + side, start)],
-                  linewidth=linewidth * 2)
+        plot_line([(rankpos(sorted_ranks[l]) - side, start), (rankpos(sorted_ranks[r]) + side, start)], linewidth=linewidth * 2)
         start += no_sig_height
 
     # Add title to the diagram
-    ax.set_title(title, fontsize=fontsize + 6)
+    ax.set_title(title, fontsize=fontsize + 15)
 
     return ax
+
+
 
 def ci_plot(result, reverse, ax, width):
     """
