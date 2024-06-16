@@ -323,30 +323,51 @@ def rank_bayesian(data, alpha, verbose, all_normal, order, rope, rope_mode, nsam
     sample_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     posterior_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
     decision_matrix = pd.DataFrame(index=reordered_data.columns, columns=reordered_data.columns)
+    posterior_probabilities_list = []
+
     for i in range(len(data.columns)):
-        for j in range(i+1, len(reordered_data.columns)):
-            if rope_mode == 'effsize':
-                # half the size of a small effect size following Kruschke (2018)
-                if all_normal:
-                    cur_rope = rope*_pooled_std(reordered_data.iloc[:, i], reordered_data.iloc[:, j])
+        for j in range(len(reordered_data.columns)):
+            if i != j:
+                if rope_mode == 'effsize':
+                    # half the size of a small effect size following Kruschke (2018)
+                    if all_normal:
+                        cur_rope = rope * _pooled_std(reordered_data.iloc[:, i], reordered_data.iloc[:, j])
+                    else:
+                        cur_rope = rope * _pooled_mad(reordered_data.iloc[:, i], reordered_data.iloc[:, j])
+                elif rope_mode == 'absolute':
+                    cur_rope = rope
                 else:
-                    cur_rope = rope*_pooled_mad(reordered_data.iloc[:, i], reordered_data.iloc[:, j])
-            elif rope_mode == 'absolute':
-                cur_rope = rope
-            else:
-                raise ValueError("Unknown rope_mode method, this should not be possible.")
-            sample = SignedRankTest(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j], rope=cur_rope,
-                                    nsamples=nsamples, random_state=random_state)
-            posterior_probabilities = sample.probs()
-            sample_matrix.iloc[i, j] = sample
-            posterior_matrix.iloc[i, j] = posterior_probabilities
-            decision_matrix.iloc[i, j] = _posterior_decision(posterior_probabilities, alpha)
-            decision_matrix.iloc[j, i] = _posterior_decision(posterior_probabilities[::-1], alpha)
-            if i == 0:
-                # comparison with "best"
-                result_df.loc[result_df.index[j], 'p_equal'] = posterior_probabilities[1]
-                result_df.loc[result_df.index[j], 'p_smaller'] = posterior_probabilities[0]
-                result_df.loc[result_df.index[j], 'decision'] = _posterior_decision(posterior_probabilities, alpha)
+                    raise ValueError("Unknown rope_mode method, this should not be possible.")
+                sample = SignedRankTest(x=reordered_data.iloc[:, i], y=reordered_data.iloc[:, j], rope=cur_rope,
+                                        nsamples=nsamples, random_state=random_state)
+                posterior_probabilities = sample.probs()
+                sample_matrix.iloc[i, j] = sample
+                posterior_matrix.iloc[i, j] = posterior_probabilities
+                decision_matrix.iloc[i, j] = _posterior_decision(posterior_probabilities, alpha)
+                
+                posterior_probabilities_list.append({
+                    'Algorithm_1': reordered_data.columns[i],
+                    'Algorithm_2': reordered_data.columns[j],
+                    'p_smaller': posterior_probabilities[0],
+                    'p_equal': posterior_probabilities[1],
+                    'p_larger': posterior_probabilities[2]
+                })
+
+                if i == 0:
+                    # comparison with "best"
+                    result_df.loc[result_df.index[j], 'p_equal'] = posterior_probabilities[1]
+                    result_df.loc[result_df.index[j], 'p_smaller'] = posterior_probabilities[0]
+                    result_df.loc[result_df.index[j], 'decision'] = _posterior_decision(posterior_probabilities, alpha)
+
+    # Create a DataFrame for posterior probabilities
+    posterior_probabilities_df = pd.DataFrame(posterior_probabilities_list)
+
+    # Export to Excel
+    with pd.ExcelWriter('Results/Bayesian.xlsx') as writer:
+        result_df.to_excel(writer, sheet_name='Results')
+        posterior_probabilities_df.to_excel(writer, sheet_name='Posterior Probabilities')
+        posterior_matrix.to_excel(writer, sheet_name='Posterior Matrix')
+        decision_matrix.to_excel(writer, sheet_name='Decision Matrix')
 
     return _BayesResult(result_df, sample_matrix, posterior_matrix, decision_matrix, effsize_method, reorder_pos)
 
